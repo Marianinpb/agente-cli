@@ -1,0 +1,13 @@
+# Entornos virtuales
+venv/
+venv2/
+env/
+.env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configuración local (opcional, si se guardara aquí, aunque se guarda en ~/.config)
+config.json
