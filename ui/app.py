@@ -49,10 +49,12 @@ class IicoApp(App):
         self.is_generating = False
 
     def setup_provider(self):
-        endpoint = config_manager.get("llm", "endpoint")
-        model = config_manager.get("llm", "model")
-        temperature = config_manager.get("llm", "temperature")
-        provider_type = config_manager.get("llm", "provider")
+        provider_type = config_manager.get_active_provider()
+        p_cfg = config_manager.get_provider_config(provider_type)
+        
+        endpoint = p_cfg.get("endpoint", "")
+        model = p_cfg.get("model", "")
+        temperature = p_cfg.get("temperature", 0.7)
         
         if provider_type == "openai":
             self.provider = OpenAIProvider(endpoint, model, temperature)
@@ -87,23 +89,24 @@ class IicoApp(App):
             sys_msg = ""
             if cmd == "/model":
                 if val:
-                    config_manager.set("llm", "model", val)
+                    config_manager.set_provider_config("model", val)
                     self.setup_provider()
-                    sys_msg = f"Modelo cambiado a '{val}'"
+                    sys_msg = f"Modelo cambiado a '{val}' para {config_manager.get_active_provider()}"
                 else:
                     sys_msg = f"Uso: /model <nombre_del_modelo>"
             elif cmd == "/endpoint":
                 if val:
-                    config_manager.set("llm", "endpoint", val)
+                    config_manager.set_provider_config("endpoint", val)
                     self.setup_provider()
-                    sys_msg = f"Endpoint cambiado a '{val}'"
+                    sys_msg = f"Endpoint cambiado a '{val}' para {config_manager.get_active_provider()}"
                 else:
                     sys_msg = f"Uso: /endpoint <url>"
             elif cmd == "/provider":
                 if val in ["ollama", "openai"]:
-                    config_manager.set("llm", "provider", val)
+                    config_manager.set_active_provider(val)
                     self.setup_provider()
-                    sys_msg = f"Proveedor cambiado a '{val}'"
+                    p_cfg = config_manager.get_provider_config()
+                    sys_msg = f"Proveedor activo cambiado a '{val}' (Endpoint: {p_cfg.get('endpoint', '')}, Modelo: {p_cfg.get('model', '')})"
                 else:
                     sys_msg = f"Uso: /provider <ollama|openai>"
             elif cmd == "/clear":
