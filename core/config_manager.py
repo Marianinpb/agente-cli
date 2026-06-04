@@ -4,19 +4,10 @@ import copy
 from pathlib import Path
 
 DEFAULT_CONFIG = {
-    "active_provider": "ollama",
-    "providers": {
-        "ollama": {
-            "endpoint": "http://localhost:11434",
-            "model": "llama3",
-            "temperature": 0.7
-        },
-        "openai": {
-            "endpoint": "http://127.0.0.1:3000/v1",
-            "model": "llama3",
-            "temperature": 0.7
-        }
-    }
+    "active_model_id": "",
+    "providers": [
+        {"name": "default_ollama", "type": "ollama", "endpoint": "http://localhost:11434"}
+    ]
 }
 
 class ConfigManager:
@@ -34,18 +25,18 @@ class ConfigManager:
                 with open(self.config_file, "r", encoding="utf-8") as f:
                     user_config = json.load(f)
                     
-                    # Migración de configuración vieja a nueva
-                    if "llm" in user_config:
-                        llm_cfg = user_config["llm"]
-                        prov = llm_cfg.get("provider", "ollama")
-                        self._config["active_provider"] = prov
-                        self._config["providers"][prov]["endpoint"] = llm_cfg.get("endpoint", self._config["providers"][prov]["endpoint"])
-                        self._config["providers"][prov]["model"] = llm_cfg.get("model", self._config["providers"][prov]["model"])
-                    else:
-                        self._config["active_provider"] = user_config.get("active_provider", "ollama")
-                        for p in ["ollama", "openai"]:
-                            if p in user_config.get("providers", {}):
-                                self._config["providers"][p].update(user_config["providers"][p])
+                    if "providers" in user_config and isinstance(user_config["providers"], list):
+                        self._config["providers"] = user_config["providers"]
+                    elif "providers" in user_config and isinstance(user_config["providers"], dict):
+                        # Migración del formato anterior (dict) a lista
+                        new_providers = []
+                        for name, data in user_config["providers"].items():
+                            p_type = user_config.get("active_provider", "ollama") if name == user_config.get("active_provider") else "openai"
+                            if "11434" in data.get("endpoint", ""): p_type = "ollama"
+                            new_providers.append({"name": name, "type": p_type, "endpoint": data.get("endpoint", "")})
+                        self._config["providers"] = new_providers
+
+                    self._config["active_model_id"] = user_config.get("active_model_id", "")
             except Exception as e:
                 print(f"Error loading config: {e}")
         else:
@@ -59,24 +50,24 @@ class ConfigManager:
         except Exception as e:
             print(f"Error saving config: {e}")
 
-    def get_active_provider(self):
-        return self._config["active_provider"]
+    def get_providers(self):
+        return self._config["providers"]
         
-    def set_active_provider(self, provider_name):
-        self._config["active_provider"] = provider_name
+    def add_provider(self, name, p_type, endpoint):
+        for p in self._config["providers"]:
+            if p["endpoint"] == endpoint:
+                p["name"] = name
+                p["type"] = p_type
+                self.save()
+                return
+        self._config["providers"].append({"name": name, "type": p_type, "endpoint": endpoint})
         self.save()
 
-    def get_provider_config(self, provider_name=None):
-        if not provider_name:
-            provider_name = self.get_active_provider()
-        return self._config["providers"].get(provider_name, {})
-    
-    def set_provider_config(self, key, value, provider_name=None):
-        if not provider_name:
-            provider_name = self.get_active_provider()
-        if provider_name not in self._config["providers"]:
-            self._config["providers"][provider_name] = {}
-        self._config["providers"][provider_name][key] = value
+    def get_active_model_id(self):
+        return self._config["active_model_id"]
+        
+    def set_active_model_id(self, model_id):
+        self._config["active_model_id"] = model_id
         self.save()
 
 config_manager = ConfigManager()

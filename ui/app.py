@@ -1,6 +1,7 @@
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Header, Footer, Static, Input, OptionList
+from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual import events, on
 
@@ -8,6 +9,7 @@ from core.config_manager import config_manager
 from api.ollama_provider import OllamaProvider
 from api.openai_provider import OpenAIProvider
 import asyncio
+from typing import List, Dict
 
 LOGO = r"""
  [b #004a98]
@@ -45,21 +47,39 @@ class IicoApp(App):
     def __init__(self):
         super().__init__()
         self.messages_history = []
-        self.setup_provider()
+        self.provider = None
         self.is_generating = False
+        self.all_models = {}
 
-    def setup_provider(self):
-        provider_type = config_manager.get_active_provider()
-        p_cfg = config_manager.get_provider_config(provider_type)
-        
-        endpoint = p_cfg.get("endpoint", "")
-        model = p_cfg.get("model", "")
-        temperature = p_cfg.get("temperature", 0.7)
-        
-        if provider_type == "openai":
-            self.provider = OpenAIProvider(endpoint, model, temperature)
-        else:
-            self.provider = OllamaProvider(endpoint, model, temperature)
+    def on_mount(self) -> None:
+        # Recuperar estado del modelo
+        active_id = config_manager.get_active_model_id()
+        if active_id:
+            self.setup_provider_from_id(active_id)
+        self.run_worker(self.fetch_all_models())
+
+    async def fetch_all_models(self):
+        providers = config_manager.get_providers()
+        self.all_models = {}
+        for p in providers:
+            p_type = p["type"]
+            ep = p["endpoint"]
+            group_name = f"{p_type} ({ep})"
+            if p_type == "openai":
+                models = await OpenAIProvider.fetch_models(ep)
+            else:
+                models = await OllamaProvider.fetch_models(ep)
+            self.all_models[group_name] = {"type": p_type, "endpoint": ep, "models": models}
+
+    def setup_provider_from_id(self, model_id: str):
+        parts = model_id.split("|", 2)
+        if len(parts) == 3:
+            p_type, ep, model = parts
+            if p_type == "openai":
+                self.provider = OpenAIProvider(ep, model, 0.7)
+            else:
+                self.provider = OllamaProvider(ep, model, 0.7)
+            config_manager.set_active_model_id(model_id)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -89,35 +109,45 @@ class IicoApp(App):
             sys_msg = ""
             if cmd == "/model":
                 if val:
-                    config_manager.set_provider_config("model", val)
-                    self.setup_provider()
-                    sys_msg = f"Modelo cambiado a '{val}' para {config_manager.get_active_provider()}"
+                    found_id = None
+                    for grp, data in self.all_models.items():
+                        if val in data["models"]:
+                            found_id = f"{data['type']}|{data['endpoint']}|{val}"
+                            break
+                    if found_id:
+                        self.setup_provider_from_id(found_id)
+                        sys_msg = f"Modelo activo cambiado a '{val}'"
+                    else:
+                        sys_msg = f"Modelo '{val}' no encontrado."
                 else:
-                    sys_msg = f"Uso: /model <nombre_del_modelo>"
-            elif cmd == "/endpoint":
-                if val:
-                    config_manager.set_provider_config("endpoint", val)
-                    self.setup_provider()
-                    sys_msg = f"Endpoint cambiado a '{val}' para {config_manager.get_active_provider()}"
-                else:
-                    sys_msg = f"Uso: /endpoint <url>"
+                    sys_msg = f"Uso: /model <nombre>"
             elif cmd == "/provider":
-                if val in ["ollama", "openai"]:
-                    config_manager.set_active_provider(val)
-                    self.setup_provider()
-                    p_cfg = config_manager.get_provider_config()
-                    sys_msg = f"Proveedor activo cambiado a '{val}' (Endpoint: {p_cfg.get('endpoint', '')}, Modelo: {p_cfg.get('model', '')})"
+                if val:
+                    p_parts = val.split(" ", 1)
+                    if len(p_parts) == 2 and p_parts[0] in ["ollama", "openai"]:
+                        p_type = p_parts[0]
+                        ep = p_parts[1]
+                        config_manager.add_provider(p_type, p_type, ep)
+                        self.run_worker(self.fetch_all_models())
+                        sys_msg = f"Proveedor {p_type} agregado: {ep}. Actualizando lista de modelos..."
+                    else:
+                        sys_msg = "Uso: /provider <ollama|openai> <endpoint>"
                 else:
-                    sys_msg = f"Uso: /provider <ollama|openai>"
+                    sys_msg = "Uso: /provider <ollama|openai> <endpoint>"
             elif cmd == "/clear":
                 self.action_clear_chat()
                 return
             else:
-                sys_msg = f"Comando desconocido '{cmd}'. Comandos: /model, /endpoint, /provider, /clear"
+                sys_msg = f"Comando desconocido '{cmd}'. Comandos: /model, /provider, /clear"
                 
             if sys_msg:
                 chat_area.mount(ChatMessage("system", sys_msg))
                 chat_area.scroll_end(animate=False)
+            return
+
+        if not self.provider:
+            chat_area.mount(ChatMessage("system", "Error: No hay ningún modelo o proveedor activo. Usa /model o /provider."))
+            chat_area.scroll_end(animate=False)
             return
             
         # Add user message
@@ -152,24 +182,51 @@ class IicoApp(App):
     @on(OptionList.OptionSelected, "#cmd-options")
     def on_cmd_selected(self, event: OptionList.OptionSelected) -> None:
         input_widget = self.query_one("#chat-input", Input)
-        input_widget.value = str(event.option.prompt) + " "
+        if event.option.id and "|" in event.option.id:
+            # Selección de un modelo
+            self.setup_provider_from_id(event.option.id)
+            input_widget.value = ""
+            chat_area = self.query_one("#chat-area")
+            model_name = event.option.id.split("|")[2]
+            chat_area.mount(ChatMessage("system", f"Modelo activo cambiado a '{model_name}'"))
+            chat_area.scroll_end(animate=False)
+        else:
+            input_widget.value = str(event.option.prompt).strip()
+            if not input_widget.value.endswith(" "):
+                input_widget.value += " "
         input_widget.focus()
-        input_widget.action_end() # Mueve el cursor al final
+        input_widget.action_end()
         self.query_one("#cmd-options").display = False
 
     async def on_input_changed(self, event: Input.Changed) -> None:
         val = event.value
         option_list = self.query_one("#cmd-options", OptionList)
         
-        if val.startswith("/") and " " not in val:
-            commands = ["/model", "/endpoint", "/provider", "/clear"]
-            matches = [cmd for cmd in commands if cmd.startswith(val.lower())]
-            if matches:
-                option_list.clear_options()
-                option_list.add_options(matches)
+        if val.startswith("/") and not val.startswith("/model "):
+            commands = ["/model ", "/provider ", "/clear"]
+            if " " not in val:
+                matches = [cmd for cmd in commands if cmd.startswith(val.lower())]
+                if matches:
+                    option_list.clear_options()
+                    option_list.add_options(matches)
+                    option_list.display = True
+                    return
+        elif val.startswith("/model "):
+            search = val[7:].strip().lower()
+            option_list.clear_options()
+            has_options = False
+            for grp, data in self.all_models.items():
+                filtered = [m for m in data["models"] if search in m.lower()]
+                if filtered:
+                    option_list.add_option(Option(f"=== {grp} ===", disabled=True))
+                    for m in filtered:
+                        m_id = f"{data['type']}|{data['endpoint']}|{m}"
+                        option_list.add_option(Option(f"  {m}", id=m_id))
+                    has_options = True
+            if has_options:
                 option_list.display = True
                 return
-        
+
         option_list.display = False
 
     def on_key(self, event: events.Key) -> None:

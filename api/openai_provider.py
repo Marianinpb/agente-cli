@@ -13,6 +13,22 @@ class OpenAIProvider:
             base += '/v1'
         self.base_url = f"{base}/chat/completions"
 
+    @staticmethod
+    async def fetch_models(endpoint: str):
+        try:
+            base = endpoint.rstrip('/')
+            if not base.endswith('/v1'):
+                base += '/v1'
+            url = f"{base}/models"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(url)
+                if r.status_code == 200:
+                    data = r.json()
+                    return [m.get("id") for m in data.get("data", [])]
+        except Exception:
+            pass
+        return []
+
     async def chat_stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         payload = {
             "model": self.model,

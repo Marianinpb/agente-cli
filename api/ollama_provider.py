@@ -4,10 +4,23 @@ from typing import AsyncGenerator, List, Dict
 
 class OllamaProvider:
     def __init__(self, endpoint: str, model: str, temperature: float):
-        self.endpoint = endpoint
+        self.endpoint = endpoint.rstrip('/')
         self.model = model
         self.temperature = temperature
-        self.base_url = f"{self.endpoint.rstrip('/')}/api/chat"
+        self.base_url = f"{self.endpoint}/api/chat"
+
+    @staticmethod
+    async def fetch_models(endpoint: str):
+        try:
+            url = f"{endpoint.rstrip('/')}/api/tags"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(url)
+                if r.status_code == 200:
+                    data = r.json()
+                    return [m.get("name") for m in data.get("models", [])]
+        except Exception:
+            pass
+        return []
 
     async def chat_stream(self, messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
         payload = {
