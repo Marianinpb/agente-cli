@@ -60,8 +60,8 @@ class IicoApp(App):
 
     async def fetch_all_models(self):
         providers = config_manager.get_providers()
-        self.all_models = {}
-        for p in providers:
+        
+        async def fetch_provider(p):
             p_type = p["type"]
             ep = p["endpoint"]
             group_name = f"{p_type} ({ep})"
@@ -69,7 +69,15 @@ class IicoApp(App):
                 models = await OpenAIProvider.fetch_models(ep)
             else:
                 models = await OllamaProvider.fetch_models(ep)
-            self.all_models[group_name] = {"type": p_type, "endpoint": ep, "models": models}
+            return group_name, {"type": p_type, "endpoint": ep, "models": models}
+            
+        results = await asyncio.gather(*(fetch_provider(p) for p in providers))
+        
+        new_all_models = {}
+        for group_name, data in results:
+            new_all_models[group_name] = data
+            
+        self.all_models = new_all_models
 
     def setup_provider_from_id(self, model_id: str):
         parts = model_id.split("|", 2)
@@ -86,7 +94,7 @@ class IicoApp(App):
         with Container(id="main-container"):
             yield Static(LOGO, id="logo")
             with VerticalScroll(id="chat-area"):
-                yield Static("[i]Bienvenido a iico. Escribe un mensaje abajo y presiona Enter.[/i]", id="welcome-msg")
+                yield Static("[i]Bienvenido a iico-agent. Escribe un mensaje abajo y presiona Enter.[/i]", id="welcome-msg")
             yield OptionList(id="cmd-options")
             yield Input(placeholder="Escribe tu mensaje aquí...", id="chat-input")
         yield Footer()
