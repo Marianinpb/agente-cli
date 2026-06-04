@@ -11,12 +11,14 @@ import asyncio
 
 LOGO = r"""
  [b #004a98]
-  _  _           
- (_)(_)          
-  _  _  ___  ___ 
- | || |/ __|/ _ \
- | || | (__| (_) |
- |_||_|\___|\___/
+  _  _                                       _   
+ (_)(_)                                     | |  
+  _  _   ___   ___  ______   __ _   __ _  __| |  
+ | || | / __| / _ \|______| / _` | / _` |/ _` |  
+ | || || (__ | (_) |       | (_| || (_| | (_| |  
+ |_||_| \___| \___/         \__,_| \__, |\__,_|  
+                                    __/ |        
+                                   |___/         
 [/b #004a98]
 """
 
@@ -33,6 +35,7 @@ class ChatMessage(Static):
         return f"{prefix}: {self.content}"
 
 class IicoApp(App):
+    TITLE = "iico-agent"
     CSS_PATH = "styles.tcss"
     BINDINGS = [
         Binding("ctrl+c", "quit", "Salir", priority=True),
