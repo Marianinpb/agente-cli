@@ -47,7 +47,13 @@ Puedes escribir estos comandos directamente en la barra de texto principal. Al p
 
 - `/model <nombre>`: Cambia el modelo en uso.
 - `/provider <ollama|openai> <endpoint>`: Agrega un proveedor y su endpoint (ej. `/provider ollama http://localhost:11434`).
+- `/memory`: Muestra las notas de la memoria pasiva cargadas.
+- `/memory-reload`: Recarga las notas de la memoria pasiva desde disco.
 - `/clear`: Limpia el historial de la conversación actual.
+
+### 🧠 Arquitectura iico-core
+
+La TUI ahora está completamente desacoplada de la lógica del agente. Toda la inteligencia (providers de LLM, memoria pasiva, generación de system prompt) es manejada por la librería subyacente `iico-core`. La TUI solo se encarga de enviar el input y renderizar los eventos de respuesta.
 
 **Atajos de Teclado:**
 - `Ctrl+C`: Salir de la aplicación.
