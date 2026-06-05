@@ -1,23 +1,30 @@
-# iico-agent
+# iico-agent (app_de_terminal)
 
-**iico-agent** es una Interfaz de Usuario de Terminal (TUI) para interactuar con modelos de lenguaje grandes (LLMs) locales y remotos.
+**iico-agent** es una Interfaz de Usuario de Terminal (TUI) de vanguardia para interactuar con modelos de lenguaje grandes (LLMs) locales y remotos.
 
 ## 🚀 Características Principales
 
 - **Soporte de Proveedores**: Conéctate a **Ollama** y APIs compatibles con **OpenAI**.
-- **Streaming**: Respuestas generadas y mostradas en tiempo real.
-- **Comandos Dinámicos**: Configura tu proveedor y modelo directamente desde el chat.
-- **Historial de Conversación**: Mantiene el contexto de los mensajes a lo largo de tu sesión de chat.
+- **Streaming en Vivo**: Las respuestas son generadas y mostradas en tiempo real a medida que el LLM genera los tokens.
+- **Comandos Dinámicos**: Configura y alterna tu proveedor y modelo activo directamente desde el chat usando comandos *slash* (`/`).
+- **Historial de Conversación**: Mantiene de manera inteligente el contexto de los mensajes a lo largo de tu sesión de chat, orquestado por el Arnés subyacente.
+
+## 🧠 Arquitectura Basada en iico-core
+
+La TUI está ahora **completamente desacoplada** de la lógica fundamental del agente. Toda la inteligencia técnica (clientes LLM, inyección de memoria pasiva y generación dinámica del system prompt) se delega a la librería externa **`iico-core`**.
+
+La aplicación de terminal sirve únicamente como la "capa de presentación", capturando los inputs del usuario y suscribiéndose a los *Harness Events* (eventos de streaming, ejecución de herramientas o errores) emitidos por `iico-core`.
 
 ## 📦 Instalación
 
-1. Clona este repositorio:
+Para correr esta aplicación localmente, debes asegurarte de haber instalado primero (o de forma simultánea) el paquete núcleo `iico-core`.
+
+1. Asegúrate de estar en el directorio de la TUI:
    ```bash
-   git clone https://github.com/Marianinpb/agente-cli.git
-   cd agente-cli
+   cd app_de_terminal
    ```
 
-2. Crea un entorno virtual e inicialízalo:
+2. Crea y activa un entorno virtual (recomendado):
    ```bash
    python -m venv venv2
    
@@ -28,14 +35,18 @@
    source venv2/bin/activate
    ```
 
-3. Instala las dependencias:
+3. Instala el paquete de `iico-core` (en modo editable desde su directorio) y luego instala los requisitos de la interfaz:
    ```bash
+   # Instala el core que está un nivel arriba
+   pip install -e ../iico-core
+   
+   # Instala las dependencias de la TUI (como textual y httpx)
    pip install -r requirements.txt
    ```
 
 ## 💻 Uso
 
-Para iniciar el agente, ejecuta:
+Para iniciar la interfaz gráfica de terminal, ejecuta:
 
 ```bash
 python main.py
@@ -43,22 +54,18 @@ python main.py
 
 ### ⌨️ Comandos de Chat y Atajos
 
-Puedes escribir estos comandos directamente en la barra de texto principal. Al presionar `/`, aparecerá un menú flotante autocompletable:
+Dentro del campo de texto principal, puedes ingresar estos comandos (`/`). Un menú flotante aparecerá sugiriendo autocompletado:
 
-- `/model <nombre>`: Cambia el modelo en uso.
-- `/provider <ollama|openai> <endpoint>`: Agrega un proveedor y su endpoint (ej. `/provider ollama http://localhost:11434`).
-- `/memory`: Muestra las notas de la memoria pasiva cargadas.
-- `/memory-reload`: Recarga las notas de la memoria pasiva desde disco.
-- `/clear`: Limpia el historial de la conversación actual.
+- `/model <nombre>`: Cambia el modelo en uso para la próxima solicitud.
+- `/provider <ollama|openai> <endpoint>`: Agrega un nuevo proveedor dinámicamente y configura su URI.
+- `/memory`: Lista las notas de la memoria pasiva que han sido cargadas exitosamente.
+- `/memory-reload`: Fuerza una recarga de todas las notas locales del disco.
+- `/clear`: Limpia el historial visual y semántico de la conversación activa.
 
-### 🧠 Arquitectura iico-core
-
-La TUI ahora está completamente desacoplada de la lógica del agente. Toda la inteligencia (providers de LLM, memoria pasiva, generación de system prompt) es manejada por la librería subyacente `iico-core`. La TUI solo se encarga de enviar el input y renderizar los eventos de respuesta.
-
-**Atajos de Teclado:**
-- `Ctrl+C`: Salir de la aplicación.
-- `Ctrl+L`: Limpiar el chat.
+**Atajos de Teclado Útiles:**
+- `Ctrl+C`: Salir de la aplicación rápidamente.
+- `Ctrl+L`: Limpiar el buffer de la pantalla de chat.
 
 ---
 
-> Construido con ❤️ usando Python y [Textual](https://github.com/Textualize/textual).
+> Construido con ❤️ usando Python, **iico-core**, y [Textual](https://github.com/Textualize/textual).

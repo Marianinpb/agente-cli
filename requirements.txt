@@ -1,2 +1,2 @@
-textual
-httpx
+textual>=1.0.0
+httpx>=0.28.0
