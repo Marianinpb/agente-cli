@@ -6,7 +6,7 @@
 
 - **Soporte de Proveedores**: Conéctate a **Ollama** y APIs compatibles con **OpenAI**.
 - **Streaming en Vivo**: Las respuestas son generadas y mostradas en tiempo real a medida que el LLM genera los tokens.
-- **Comandos Dinámicos**: Configura y alterna tu proveedor y modelo activo directamente desde el chat usando comandos *slash* (`/`).
+- **Configuración en Caliente (Hot-Reload)**: Modifica parámetros del agente (como umbrales de búsqueda semántica o tamaños de caché del Splay Tree) en tiempo real mediante un panel interactivo (`Ctrl+S`).
 - **Historial de Conversación**: Mantiene de manera inteligente el contexto de los mensajes a lo largo de tu sesión de chat, orquestado por el Arnés subyacente.
 
 ## 🧠 Arquitectura Basada en iico-core
@@ -60,11 +60,14 @@ Dentro del campo de texto principal, puedes ingresar estos comandos (`/`). Un me
 - `/provider <ollama|openai> <endpoint>`: Agrega un nuevo proveedor dinámicamente y configura su URI.
 - `/memory`: Lista las notas de la memoria pasiva que han sido cargadas exitosamente.
 - `/memory-reload`: Fuerza una recarga de todas las notas locales del disco.
+- `/skills`: Muestra las herramientas (Skills) cargadas en el `SkillRegistry` del agente.
+- `/splay`: Visualiza las métricas y estado del *Splay Tree* (la caché de contexto).
 - `/clear`: Limpia el historial visual y semántico de la conversación activa.
 
 **Atajos de Teclado Útiles:**
 - `Ctrl+C`: Salir de la aplicación rápidamente.
 - `Ctrl+L`: Limpiar el buffer de la pantalla de chat.
+- `Ctrl+S`: Abrir el panel de **Configuración Interactiva** para modificar parámetros del `Harness` en tiempo real.
 
 ---
 
