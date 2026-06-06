@@ -32,6 +32,7 @@ from core.config_manager import config_manager
 
 from iico_core import Harness, HarnessConfig, HarnessEventType, ProviderConfig
 from iico_core.llm_client import OllamaClient, OpenAIClient
+from .settings_screen import SettingsScreen, SettingsChanged
 
 import asyncio
 
@@ -69,6 +70,7 @@ class IicoApp(App):
     BINDINGS = [
         Binding("ctrl+c", "quit", "Salir", priority=True),
         Binding("ctrl+l", "clear_chat", "Limpiar", priority=True),
+        Binding("ctrl+s", "open_settings", "Settings", priority=True),
     ]
 
     def __init__(self):
@@ -121,6 +123,9 @@ class IicoApp(App):
         harness_cfg = HarnessConfig(
             provider=provider_cfg,
             memory_path=_root / "memory_store",
+            skills_path=_root / "skills",
+            use_skills=True,
+            use_embedding_search=True,
         )
         self.harness = Harness(harness_cfg)
         config_manager.set_active_model_id(model_id)
@@ -283,7 +288,7 @@ class IicoApp(App):
         option_list = self.query_one("#cmd-options", OptionList)
 
         if val.startswith("/") and not val.startswith("/model "):
-            commands = ["/model ", "/provider ", "/clear", "/memory", "/memory-reload"]
+            commands = ["/model ", "/provider ", "/clear", "/memory", "/memory-reload", "/skills", "/splay"]
             if " " not in val:
                 matches = [cmd for cmd in commands if cmd.startswith(val.lower())]
                 if matches:
@@ -322,6 +327,78 @@ class IicoApp(App):
             for child in chat_area.children:
                 if child.id != "welcome-msg":
                     child.remove()
+
+    def action_open_settings(self) -> None:
+        """Abre la pantalla modal de configuración."""
+        if self.harness is None:
+            self.notify(
+                "Primero selecciona un modelo con /model <nombre>",
+                title="Sin modelo activo",
+                severity="warning",
+            )
+            return
+        self.push_screen(
+            SettingsScreen(self.harness.config),
+            self._on_settings_closed,
+        )
+
+    def _on_settings_closed(self, result) -> None:
+        """
+        Callback que recibe el SettingsChanged cuando el usuario presiona Aplicar.
+        Aplica los cambios al Harness en caliente sin reiniciarlo por completo.
+        """
+        if result is None or not isinstance(result, SettingsChanged):
+            return  # El usuario canceló
+
+        if self.harness is None:
+            return
+
+        cfg = self.harness.config
+
+        # Actualizar flags
+        cfg.use_passive_memory    = result.use_passive_memory
+        cfg.use_splay_tree        = result.use_splay_tree
+        cfg.use_skills            = result.use_skills
+        cfg.splay_cache_size      = result.splay_cache_size
+        cfg.max_context_notes     = result.max_context_notes
+        cfg.splay_peek_top        = result.splay_peek_top
+
+        # Umbral de embeddings: no requiere reinicio
+        cfg.embedding_threshold   = result.embedding_threshold
+        if self.harness._embedding_index is not None:
+            # Actualizar el índice directamente si ya estaba cargado
+            pass  # El threshold se lee en cada llamada a search(), no hay que reiniciar
+
+        # Embeddings: si se activa y no estaba inicializado, construir el índice
+        if result.use_embedding_search and not cfg.use_embedding_search:
+            cfg.use_embedding_search = True
+            self.harness._init_embedding_index()
+        elif not result.use_embedding_search:
+            cfg.use_embedding_search = False
+            self.harness._embedding_index = None
+
+        # Skills: si se activa y no había registry, cargarlo
+        if result.use_skills and self.harness._skill_registry is None:
+            from iico_core.memory.active import SkillRegistry
+            from iico_core.bridge.shell import ShellBridge
+            self.harness._skill_registry = SkillRegistry(cfg.skills_path)
+            self.harness._bridge = ShellBridge(default_timeout=cfg.skill_timeout)
+        elif not result.use_skills:
+            self.harness._skill_registry = None
+            self.harness._bridge = None
+
+        chat_area = self.query_one("#chat-area")
+        flags_summary = (
+            f"[bold #66a3ff]Configuración aplicada:[/bold #66a3ff] "
+            f"Memoria={'ON' if cfg.use_passive_memory else 'OFF'} | "
+            f"Splay={'ON' if cfg.use_splay_tree else 'OFF'} | "
+            f"Embeddings={'ON' if cfg.use_embedding_search else 'OFF'} (umbral={cfg.embedding_threshold:.2f}) | "
+            f"Skills={'ON' if cfg.use_skills else 'OFF'} | "
+            f"Nodos Splay={cfg.splay_cache_size} | "
+            f"Notas={cfg.max_context_notes}"
+        )
+        chat_area.mount(ChatMessage("system", flags_summary))
+        chat_area.scroll_end(animate=False)
 
 
 if __name__ == "__main__":
