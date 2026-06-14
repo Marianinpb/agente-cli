@@ -645,10 +645,13 @@ class IicoApp(App):
         cfg.use_passive_memory    = result.use_passive_memory
         cfg.use_splay_tree        = result.use_splay_tree
         cfg.use_skills            = result.use_skills
+        cfg.use_react_loop        = result.use_react_loop
         cfg.splay_cache_size      = result.splay_cache_size
         cfg.max_context_notes     = result.max_context_notes
         cfg.splay_peek_top        = result.splay_peek_top
         cfg.embedding_threshold   = result.embedding_threshold
+        cfg.skill_timeout         = result.skill_timeout
+        cfg.token_budget          = result.token_budget
 
         if result.use_embedding_search and not cfg.use_embedding_search:
             cfg.use_embedding_search = True
@@ -665,6 +668,9 @@ class IicoApp(App):
         elif not result.use_skills:
             self.harness._skill_registry = None
             self.harness._bridge = None
+        else:
+            if self.harness._bridge:
+                self.harness._bridge.default_timeout = cfg.skill_timeout
 
         chat_area = self.query_one("#chat-area")
         flags_summary = (
@@ -672,7 +678,9 @@ class IicoApp(App):
             f"Memoria={'ON' if cfg.use_passive_memory else 'OFF'} | "
             f"Splay={'ON' if cfg.use_splay_tree else 'OFF'} | "
             f"Embeddings={'ON' if cfg.use_embedding_search else 'OFF'} (umbral={cfg.embedding_threshold:.2f}) | "
-            f"Skills={'ON' if cfg.use_skills else 'OFF'} | "
+            f"Skills={'ON' if cfg.use_skills else 'OFF'} (timeout={cfg.skill_timeout}s) | "
+            f"ReAct={'ON' if cfg.use_react_loop else 'OFF'} | "
+            f"Tokens={cfg.token_budget} | "
             f"Nodos Splay={cfg.splay_cache_size} | "
             f"Notas={cfg.max_context_notes}"
         )

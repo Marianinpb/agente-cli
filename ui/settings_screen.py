@@ -47,10 +47,13 @@ class SettingsChanged(Message):
     use_splay_tree: bool
     use_embedding_search: bool
     use_skills: bool
+    use_react_loop: bool
     embedding_threshold: float
     splay_cache_size: int
     max_context_notes: int
     splay_peek_top: int
+    skill_timeout: float
+    token_budget: int
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +227,18 @@ class SettingsScreen(ModalScreen):
                     classes="setting-desc",
                 )
 
+                # ReAct Loop
+                with Horizontal(classes="setting-row"):
+                    yield Label("ReAct Loop (Agente Autónomo)", classes="setting-label")
+                    yield Switch(
+                        value=cfg.use_react_loop,
+                        id="sw-react-loop",
+                    )
+                yield Static(
+                    "Activa el bucle de razonamiento ReAct para ejecutar tareas automáticamente",
+                    classes="setting-desc",
+                )
+
                 # ── Parámetros numéricos ─────────────────────────────────
                 yield Static("PARÁMETROS", classes="section-label")
                 yield Rule()
@@ -280,6 +295,32 @@ class SettingsScreen(ModalScreen):
                     classes="setting-desc",
                 )
 
+                # Timeout de skills
+                with Horizontal(classes="setting-row"):
+                    yield Label("Timeout de Skills (seg)", classes="setting-label")
+                    yield Input(
+                        value=str(cfg.skill_timeout),
+                        id="inp-skill-timeout",
+                        classes="num-input",
+                    )
+                yield Static(
+                    "Tiempo máximo (en segundos) para ejecutar una herramienta",
+                    classes="setting-desc",
+                )
+
+                # Presupuesto de tokens
+                with Horizontal(classes="setting-row"):
+                    yield Label("Presupuesto de tokens", classes="setting-label")
+                    yield Input(
+                        value=str(cfg.token_budget),
+                        id="inp-token-budget",
+                        classes="num-input",
+                    )
+                yield Static(
+                    "Límite aproximado de tokens para el system prompt",
+                    classes="setting-desc",
+                )
+
                 # ── Botones ──────────────────────────────────────────────
                 with Horizontal(id="btn-row"):
                     yield Button("Aplicar", id="btn-apply", variant="primary")
@@ -306,6 +347,7 @@ class SettingsScreen(ModalScreen):
         use_splay   = self.query_one("#sw-splay-tree", Switch).value
         use_emb     = self.query_one("#sw-embeddings", Switch).value
         use_skills  = self.query_one("#sw-skills", Switch).value
+        use_react   = self.query_one("#sw-react-loop", Switch).value
 
         # Leer y validar inputs numéricos
         try:
@@ -340,6 +382,22 @@ class SettingsScreen(ModalScreen):
             errors.append("Peek top: debe ser un entero positivo")
             peek_top = self._cfg.splay_peek_top
 
+        try:
+            skill_tout = float(self.query_one("#inp-skill-timeout", Input).value)
+            if skill_tout <= 0:
+                raise ValueError()
+        except ValueError:
+            errors.append("Timeout Skills: debe ser mayor a 0")
+            skill_tout = self._cfg.skill_timeout
+
+        try:
+            tok_budget = int(self.query_one("#inp-token-budget", Input).value)
+            if tok_budget < 100:
+                raise ValueError()
+        except ValueError:
+            errors.append("Token budget: debe ser mínimo 100")
+            tok_budget = self._cfg.token_budget
+
         if errors:
             # Mostrar errores en consola (en una UI real podría ser un toast)
             self.app.notify(
@@ -356,9 +414,12 @@ class SettingsScreen(ModalScreen):
                 use_splay_tree=use_splay,
                 use_embedding_search=use_emb,
                 use_skills=use_skills,
+                use_react_loop=use_react,
                 embedding_threshold=threshold,
                 splay_cache_size=splay_size,
                 max_context_notes=max_notes,
                 splay_peek_top=peek_top,
+                skill_timeout=skill_tout,
+                token_budget=tok_budget,
             )
         )
