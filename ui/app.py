@@ -3,31 +3,42 @@ app_de_terminal/ui/app.py
 =========================
 TUI de iico-agent construida con Textual.
 
+Layout (Fase 3):
+    ┌─────────────────────────────────────────────────────┐
+    │  Header (reloj)                                     │
+    ├──────────────────────────────────────────────────── │
+    │  ● Listo — <tarea actual>          [barra de estado]│
+    ├─────────────┬───────────────────────────────────────┤
+    │ 📁 Proyecto │  Logo / Chat                          │
+    │  (árbol)   │  [minimizable con Ctrl+B]              │
+    │            │  > input                               │
+    └─────────────┴───────────────────────────────────────┘
+    │  Footer                                             │
+
 Esta capa SOLO se encarga de:
   1. Capturar input del usuario
   2. Pasarlo al Harness
   3. Renderizar los HarnessEvents que recibe
 
-Toda la lógica de negocio (providers, memoria, system prompt, etc.)
-vive en iico_core — esta UI no sabe nada de LLMs ni de Ollama.
+Toda la lógica de negocio vive en iico_core.
 """
 
 import sys
 from pathlib import Path
 
-# Asegurar que iico_core sea importable (funciona tanto con pip install -e .
-# como corriendo directamente desde app_de_terminal/)
 _root = Path(__file__).parent.parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, VerticalScroll, Horizontal
-from textual.widgets import Header, Footer, Static, Input, OptionList, Label
+from textual.containers import Container, VerticalScroll, Horizontal, Vertical
+from textual.widgets import (
+    Header, Footer, Static, Input, OptionList, Label,
+    DirectoryTree, Button,
+)
 from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual import events, on
-from textual.reactive import reactive
 
 from core.config_manager import config_manager
 
@@ -52,17 +63,20 @@ LOGO = r"""
 [/b #004a98]
 """
 
-
-# Iconos de estado para la barra de agente
+# Iconos de estado para la barra del agente
 _STATE_LABELS = {
-    AgentState.IDLE:              ("[dim]⬤[/dim]",  "Listo"),
-    AgentState.INTERVIEWING:      ("[yellow]⬤[/yellow]", "Entrevistando..."),
-    AgentState.PLANNING:          ("[cyan]⬤[/cyan]",  "Planificando..."),
-    AgentState.AWAITING_APPROVAL: ("[#ffaa00]⬤[/#ffaa00]", "Esperando aprobación"),
-    AgentState.EXECUTING:         ("[green]⬤[/green]", "Ejecutando"),
-    AgentState.VERIFYING:         ("[blue]⬤[/blue]",  "Verificando"),
+    AgentState.IDLE:              ("⬤",  "Listo",               "dim"),
+    AgentState.INTERVIEWING:      ("⬤",  "Entrevistando...",    "yellow"),
+    AgentState.PLANNING:          ("⬤",  "Planificando...",     "cyan"),
+    AgentState.AWAITING_APPROVAL: ("⬤",  "Esperando aprobación","bright_yellow"),
+    AgentState.EXECUTING:         ("⬤",  "Ejecutando",          "green"),
+    AgentState.VERIFYING:         ("⬤",  "Verificando",         "blue"),
 }
 
+
+# ---------------------------------------------------------------------------
+# Widget de mensaje de chat
+# ---------------------------------------------------------------------------
 
 class ChatMessage(Static):
     def __init__(self, role: str, content: str):
@@ -74,20 +88,73 @@ class ChatMessage(Static):
         if self.role == "system":
             return f"[i #888888]{self.content}[/i #888888]"
         if self.role == "thinking":
-            return f"[i #444488]🤔 {self.content}[/i #444488]"
+            return f"[i #5555aa]🤔 {self.content}[/i #5555aa]"
         if self.role == "skill":
             return f"[dim]⚙ {self.content}[/dim]"
-        prefix = "[b #004a98]iico[/b #004a98]" if self.role == "assistant" else "[b #e0e0e0]Tú[/b #e0e0e0]"
+        prefix = (
+            "[b #004a98]iico[/b #004a98]"
+            if self.role == "assistant"
+            else "[b #e0e0e0]Tú[/b #e0e0e0]"
+        )
         return f"{prefix}: {self.content}"
 
+
+# ---------------------------------------------------------------------------
+# Panel lateral: explorador de archivos
+# ---------------------------------------------------------------------------
+
+class FileExplorer(Vertical):
+    """
+    Panel lateral con DirectoryTree.
+    - Doble clic en una carpeta → la establece como raíz del proyecto.
+    - El botón "Establecer raíz" hace lo mismo con la carpeta seleccionada.
+    - Ctrl+B minimiza/maximiza el panel desde la app principal.
+    """
+
+    DEFAULT_CSS = ""
+
+    def __init__(self, initial_path: Path):
+        super().__init__(id="file-explorer")
+        self._current_path = initial_path
+        self._selected_dir: Path | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Label("📁 Explorador", id="explorer-title")
+        yield Label(
+            f"[dim]{self._current_path}[/dim]",
+            id="explorer-root-label",
+        )
+        yield Button(
+            "Establecer como raíz del proyecto",
+            id="btn-set-root",
+            variant="primary",
+        )
+        yield DirectoryTree(str(self._current_path), id="dir-tree")
+
+    def update_root(self, path: Path) -> None:
+        """Cambia la raíz del árbol de directorios."""
+        self._current_path = path
+        try:
+            label = self.query_one("#explorer-root-label", Label)
+            label.update(f"[dim]{path}[/dim]")
+            tree = self.query_one("#dir-tree", DirectoryTree)
+            tree.path = str(path)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Aplicación principal
+# ---------------------------------------------------------------------------
 
 class IicoApp(App):
     TITLE = "iico-agent"
     CSS_PATH = "styles.tcss"
     BINDINGS = [
-        Binding("ctrl+c", "quit", "Salir", priority=True),
-        Binding("ctrl+l", "clear_chat", "Limpiar", priority=True),
-        Binding("ctrl+s", "open_settings", "Settings", priority=True),
+        Binding("ctrl+c", "quit",          "Salir",      priority=True),
+        Binding("ctrl+l", "clear_chat",    "Limpiar",    priority=True),
+        Binding("ctrl+s", "open_settings", "Settings",   priority=True),
+        Binding("ctrl+b", "toggle_explorer","Explorador", priority=True),
     ]
 
     def __init__(self):
@@ -95,6 +162,8 @@ class IicoApp(App):
         self.harness: Harness | None = None
         self.is_generating = False
         self.all_models: dict = {}
+        self._explorer_visible = True
+        self._project_root: Path | None = None
 
     # ------------------------------------------------------------------
     # Ciclo de vida
@@ -105,6 +174,8 @@ class IicoApp(App):
         if active_id:
             self._setup_harness_from_id(active_id)
         self.run_worker(self._fetch_all_models())
+        # Mostrar barra de estado inicial
+        self._refresh_state_bar()
 
     async def _fetch_all_models(self):
         providers = config_manager.get_providers()
@@ -116,7 +187,6 @@ class IicoApp(App):
             if p_type == "openai":
                 client = OpenAIClient(ep, "")
             else:
-                from iico_core.llm_client import OllamaClient
                 client = OllamaClient(ep, "")
             models = await client.fetch_models()
             return group_name, {"type": p_type, "endpoint": ep, "models": models}
@@ -147,36 +217,115 @@ class IicoApp(App):
         )
         self.harness = Harness(harness_cfg)
         config_manager.set_active_model_id(model_id)
-        # Actualizar barra de estado
-        try:
-            self._refresh_state_bar()
-        except Exception:
-            pass  # La UI puede no estar montada aún
+        self._refresh_state_bar()
 
     # ------------------------------------------------------------------
-    # Composición de la UI
+    # Composición del layout
     # ------------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        # Barra de estado del agente (Fase 3)
+
+        # Barra de estado del agente (siempre visible)
         with Horizontal(id="agent-status-bar"):
-            yield Label("[dim]⬤[/dim]", id="state-icon")
+            yield Label("⬤", id="state-icon")
             yield Label("Listo", id="state-label")
             yield Label("", id="state-task")
-        with Container(id="main-container"):
-            yield Static(LOGO, id="logo")
-            with VerticalScroll(id="chat-area"):
-                yield Static(
-                    "[i]Bienvenido a iico-agent. Escribe un mensaje abajo y presiona Enter.[/i]",
-                    id="welcome-msg",
-                )
-            yield OptionList(id="cmd-options")
-            yield Input(placeholder="Escribe tu mensaje aquí...", id="chat-input")
+
+        # Layout principal: explorador | chat
+        with Horizontal(id="workspace"):
+            # Panel izquierdo: explorador de archivos
+            yield FileExplorer(initial_path=_root)
+
+            # Panel derecho: chat
+            with Vertical(id="chat-panel"):
+                yield Static(LOGO, id="logo")
+                with VerticalScroll(id="chat-area"):
+                    yield Static(
+                        "[i]Bienvenido a iico-agent.[/i]\n"
+                        "[dim]Ctrl+B → explorador | Ctrl+S → ajustes | /sdd → flujo de diseño[/dim]",
+                        id="welcome-msg",
+                    )
+                yield OptionList(id="cmd-options")
+                yield Input(placeholder="Escribe tu mensaje aquí...", id="chat-input")
+
         yield Footer()
 
     # ------------------------------------------------------------------
-    # Manejo de input
+    # Explorador: interacciones
+    # ------------------------------------------------------------------
+
+    @on(DirectoryTree.DirectorySelected, "#dir-tree")
+    def on_dir_selected(self, event: DirectoryTree.DirectorySelected) -> None:
+        """Guardar la carpeta seleccionada en el árbol."""
+        self._selected_dir = Path(str(event.path))
+
+    @on(DirectoryTree.FileSelected, "#dir-tree")
+    def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        """Si se selecciona un archivo, guardar su carpeta padre."""
+        self._selected_dir = Path(str(event.path)).parent
+
+    @on(Button.Pressed, "#btn-set-root")
+    def on_set_root_pressed(self, event: Button.Pressed) -> None:
+        """Establece la carpeta seleccionada como raíz del proyecto."""
+        target = self._selected_dir or self._project_root
+        if target and target.is_dir():
+            self._set_project_root(target)
+        else:
+            self._notify_status("Selecciona primero una carpeta en el árbol.")
+
+    def _set_project_root(self, path: Path) -> None:
+        """Establece la raíz del proyecto en el Harness y actualiza la UI."""
+        self._project_root = path
+
+        # Actualizar el árbol visual
+        try:
+            explorer = self.query_one(FileExplorer)
+            explorer.update_root(path)
+        except Exception:
+            pass
+
+        # Notificar al Harness vía el comando slash interno
+        if self.harness:
+            import asyncio
+            asyncio.ensure_future(self._apply_project_root_to_harness(path))
+
+        # Mostrar en el chat
+        chat_area = self.query_one("#chat-area")
+        chat_area.mount(
+            ChatMessage("system", f"📁 Raíz del proyecto: {path}")
+        )
+        chat_area.scroll_end(animate=False)
+
+    async def _apply_project_root_to_harness(self, path: Path) -> None:
+        """Aplica la raíz del proyecto al Harness directamente."""
+        if not self.harness:
+            return
+        self.harness._project_root = path
+        if self.harness._sdd_manager:
+            self.harness._sdd_manager.set_project_root(path)
+        if self.harness._task_manager:
+            self.harness._task_manager.set_project_root(path)
+
+    def action_toggle_explorer(self) -> None:
+        """Ctrl+B — muestra/oculta el panel del explorador."""
+        try:
+            explorer = self.query_one(FileExplorer)
+            self._explorer_visible = not self._explorer_visible
+            explorer.display = self._explorer_visible
+        except Exception:
+            pass
+
+    def _notify_status(self, msg: str) -> None:
+        try:
+            chat_area = self.query_one("#chat-area")
+            chat_area.mount(ChatMessage("system", msg))
+            chat_area.scroll_end(animate=False)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Manejo de input del chat
     # ------------------------------------------------------------------
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -187,10 +336,19 @@ class IicoApp(App):
         event.input.value = ""
         chat_area = self.query_one("#chat-area")
 
-        # ── Comandos de UI (modelo/provider) que el Harness no conoce ──
+        # ── Comandos de UI que el Harness no conoce ──
         if user_text.startswith("/model") or user_text.startswith("/provider"):
             await self._handle_ui_command(user_text, chat_area)
             return
+
+        # ── /project desde chat → también actualiza el árbol ──
+        if user_text.startswith("/project "):
+            path_str = user_text[9:].strip()
+            p = Path(path_str).expanduser().resolve()
+            if p.exists() and p.is_dir():
+                self._set_project_root(p)
+            # También dejamos que el Harness procese el comando
+            # (caerá al flujo normal de abajo)
 
         # ── Sin Harness configurado ──
         if not self.harness:
@@ -201,11 +359,11 @@ class IicoApp(App):
             chat_area.scroll_end(animate=False)
             return
 
-        # ── Mensaje normal o comando del Harness (/clear, /memory, etc.) ──
+        # ── Mensaje normal o comando del Harness ──
         chat_area.mount(ChatMessage("user", user_text))
         chat_area.scroll_end(animate=False)
 
-        assistant_widget = ChatMessage("assistant", "")
+        assistant_widget = ChatMessage("assistant", "▌")  # cursor inicial
         chat_area.mount(assistant_widget)
         chat_area.scroll_end(animate=False)
 
@@ -228,9 +386,7 @@ class IicoApp(App):
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.THINKING:
-                    # Mostrar el estado de razonamiento en la barra
                     self._set_state_task(str(event.payload))
-                    # También mostrar brevemente en el chat si está pensando mucho
                     if thinking_widget is None:
                         thinking_widget = ChatMessage("thinking", str(event.payload))
                         chat_area.mount(thinking_widget)
@@ -241,8 +397,8 @@ class IicoApp(App):
 
                 elif event.type == HarnessEventType.SKILL_START:
                     skill_name = str(event.payload)
-                    self._set_state_task(f"⚙ Ejecutando: {skill_name}")
-                    chat_area.mount(ChatMessage("skill", f"Ejecutando skill: {skill_name}..."))
+                    self._set_state_task(f"⚙ {skill_name}")
+                    chat_area.mount(ChatMessage("skill", f"Ejecutando: {skill_name}..."))
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.SKILL_DONE:
@@ -256,7 +412,6 @@ class IicoApp(App):
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.STATE_CHANGED:
-                    # Actualizar barra de agente + mensaje en chat
                     msg = str(event.payload)
                     self._refresh_state_bar()
                     chat_area.mount(ChatMessage("system", msg))
@@ -295,7 +450,6 @@ class IicoApp(App):
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.SDD_QUESTION:
-                    # Mensaje especial para preguntas de la entrevista SDD
                     widget.content = str(event.payload)
                     widget.refresh()
                     self._refresh_state_bar()
@@ -316,7 +470,6 @@ class IicoApp(App):
                     widget.refresh()
 
                 elif event.type == HarnessEventType.DONE:
-                    # Limpiar el widget de thinking si existe
                     if thinking_widget:
                         thinking_widget.remove()
                         thinking_widget = None
@@ -352,7 +505,7 @@ class IicoApp(App):
                     self._setup_harness_from_id(found_id)
                     sys_msg = f"Modelo activo cambiado a '{val}'"
                 else:
-                    sys_msg = f"Modelo '{val}' no encontrado. Usa /model <nombre> con un modelo disponible."
+                    sys_msg = f"Modelo '{val}' no encontrado. Usa /model <nombre>."
             else:
                 current = self.harness.model_name if self.harness else "ninguno"
                 sys_msg = f"Modelo actual: {current}. Uso: /model <nombre>"
@@ -438,17 +591,20 @@ class IicoApp(App):
         if option_list.display and event.key in ["down", "up", "tab"]:
             option_list.focus()
 
+    # ------------------------------------------------------------------
+    # Acciones de bindings
+    # ------------------------------------------------------------------
+
     def action_clear_chat(self) -> None:
         if not self.is_generating:
             if self.harness:
                 self.harness.clear_history()
             chat_area = self.query_one("#chat-area")
-            for child in chat_area.children:
+            for child in list(chat_area.children):
                 if child.id != "welcome-msg":
                     child.remove()
 
     def action_open_settings(self) -> None:
-        """Abre la pantalla modal de configuración."""
         if self.harness is None:
             self.notify(
                 "Primero selecciona un modelo con /model <nombre>",
@@ -461,34 +617,31 @@ class IicoApp(App):
             self._on_settings_closed,
         )
 
+    def action_toggle_explorer(self) -> None:
+        """Ctrl+B — muestra/oculta el explorador de archivos."""
+        try:
+            explorer = self.query_one(FileExplorer)
+            self._explorer_visible = not self._explorer_visible
+            explorer.display = self._explorer_visible
+        except Exception:
+            pass
+
     def _on_settings_closed(self, result) -> None:
-        """
-        Callback que recibe el SettingsChanged cuando el usuario presiona Aplicar.
-        Aplica los cambios al Harness en caliente sin reiniciarlo por completo.
-        """
         if result is None or not isinstance(result, SettingsChanged):
-            return  # El usuario canceló
+            return
 
         if self.harness is None:
             return
 
         cfg = self.harness.config
-
-        # Actualizar flags
         cfg.use_passive_memory    = result.use_passive_memory
         cfg.use_splay_tree        = result.use_splay_tree
         cfg.use_skills            = result.use_skills
         cfg.splay_cache_size      = result.splay_cache_size
         cfg.max_context_notes     = result.max_context_notes
         cfg.splay_peek_top        = result.splay_peek_top
-
-        # Umbral de embeddings: no requiere reinicio
         cfg.embedding_threshold   = result.embedding_threshold
-        if self.harness._embedding_index is not None:
-            # Actualizar el índice directamente si ya estaba cargado
-            pass  # El threshold se lee en cada llamada a search(), no hay que reiniciar
 
-        # Embeddings: si se activa y no estaba inicializado, construir el índice
         if result.use_embedding_search and not cfg.use_embedding_search:
             cfg.use_embedding_search = True
             self.harness._init_embedding_index()
@@ -496,7 +649,6 @@ class IicoApp(App):
             cfg.use_embedding_search = False
             self.harness._embedding_index = None
 
-        # Skills: si se activa y no había registry, cargarlo
         if result.use_skills and self.harness._skill_registry is None:
             from iico_core.memory.active import SkillRegistry
             from iico_core.bridge.shell import ShellBridge
@@ -519,16 +671,15 @@ class IicoApp(App):
         chat_area.mount(ChatMessage("system", flags_summary))
         chat_area.scroll_end(animate=False)
 
-
     # ------------------------------------------------------------------
-    # Helpers de barra de estado del agente (Fase 3)
+    # Helpers: barra de estado del agente
     # ------------------------------------------------------------------
 
     def _refresh_state_bar(self) -> None:
-        """Actualiza el ícono y texto de la barra de estado según el estado del Harness."""
+        """Actualiza ícono y texto de la barra de estado."""
         try:
-            icon_widget = self.query_one("#state-icon", Label)
-            label_widget = self.query_one("#state-label", Label)
+            icon_w = self.query_one("#state-icon", Label)
+            label_w = self.query_one("#state-label", Label)
         except Exception:
             return
 
@@ -536,15 +687,17 @@ class IicoApp(App):
         if self.harness and hasattr(self.harness, "_state"):
             state = self.harness._state
 
-        icon, text = _STATE_LABELS.get(state, ("[dim]⬤[/dim]", "Listo"))
-        icon_widget.update(icon)
-        label_widget.update(text)
+        icon, text, color = _STATE_LABELS.get(
+            state, ("⬤", "Listo", "dim")
+        )
+        icon_w.update(f"[{color}]{icon}[/{color}]")
+        label_w.update(text)
 
     def _set_state_task(self, task_text: str) -> None:
-        """Actualiza el texto de la tarea actual en la barra de estado."""
+        """Actualiza el subtexto de la tarea actual en la barra."""
         try:
-            task_widget = self.query_one("#state-task", Label)
-            task_widget.update(f" — {task_text}" if task_text else "")
+            task_w = self.query_one("#state-task", Label)
+            task_w.update(f" — {task_text}" if task_text else "")
         except Exception:
             pass
 
