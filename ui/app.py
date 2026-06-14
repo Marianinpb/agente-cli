@@ -22,15 +22,17 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, VerticalScroll
-from textual.widgets import Header, Footer, Static, Input, OptionList
+from textual.containers import Container, VerticalScroll, Horizontal
+from textual.widgets import Header, Footer, Static, Input, OptionList, Label
 from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual import events, on
+from textual.reactive import reactive
 
 from core.config_manager import config_manager
 
 from iico_core import Harness, HarnessConfig, HarnessEventType, ProviderConfig
+from iico_core.types import AgentState
 from iico_core.llm_client import OllamaClient, OpenAIClient
 from .settings_screen import SettingsScreen, SettingsChanged
 
@@ -51,6 +53,17 @@ LOGO = r"""
 """
 
 
+# Iconos de estado para la barra de agente
+_STATE_LABELS = {
+    AgentState.IDLE:              ("[dim]⬤[/dim]",  "Listo"),
+    AgentState.INTERVIEWING:      ("[yellow]⬤[/yellow]", "Entrevistando..."),
+    AgentState.PLANNING:          ("[cyan]⬤[/cyan]",  "Planificando..."),
+    AgentState.AWAITING_APPROVAL: ("[#ffaa00]⬤[/#ffaa00]", "Esperando aprobación"),
+    AgentState.EXECUTING:         ("[green]⬤[/green]", "Ejecutando"),
+    AgentState.VERIFYING:         ("[blue]⬤[/blue]",  "Verificando"),
+}
+
+
 class ChatMessage(Static):
     def __init__(self, role: str, content: str):
         super().__init__()
@@ -60,6 +73,10 @@ class ChatMessage(Static):
     def render(self) -> str:
         if self.role == "system":
             return f"[i #888888]{self.content}[/i #888888]"
+        if self.role == "thinking":
+            return f"[i #444488]🤔 {self.content}[/i #444488]"
+        if self.role == "skill":
+            return f"[dim]⚙ {self.content}[/dim]"
         prefix = "[b #004a98]iico[/b #004a98]" if self.role == "assistant" else "[b #e0e0e0]Tú[/b #e0e0e0]"
         return f"{prefix}: {self.content}"
 
@@ -126,9 +143,15 @@ class IicoApp(App):
             skills_path=_root / "skills",
             use_skills=True,
             use_embedding_search=True,
+            use_react_loop=True,
         )
         self.harness = Harness(harness_cfg)
         config_manager.set_active_model_id(model_id)
+        # Actualizar barra de estado
+        try:
+            self._refresh_state_bar()
+        except Exception:
+            pass  # La UI puede no estar montada aún
 
     # ------------------------------------------------------------------
     # Composición de la UI
@@ -136,6 +159,11 @@ class IicoApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        # Barra de estado del agente (Fase 3)
+        with Horizontal(id="agent-status-bar"):
+            yield Label("[dim]⬤[/dim]", id="state-icon")
+            yield Label("Listo", id="state-label")
+            yield Label("", id="state-task")
         with Container(id="main-container"):
             yield Static(LOGO, id="logo")
             with VerticalScroll(id="chat-area"):
@@ -187,6 +215,9 @@ class IicoApp(App):
     async def _stream_response(self, user_text: str, widget: ChatMessage) -> None:
         """Consume el stream de HarnessEvents y actualiza el widget del UI."""
         full_text = ""
+        thinking_widget: ChatMessage | None = None
+        chat_area = self.query_one("#chat-area")
+
         try:
             async for event in self.harness.process_input(user_text):
 
@@ -194,21 +225,103 @@ class IicoApp(App):
                     full_text += event.payload
                     widget.content = full_text
                     widget.refresh()
-                    self.query_one("#chat-area").scroll_end(animate=False)
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.THINKING:
+                    # Mostrar el estado de razonamiento en la barra
+                    self._set_state_task(str(event.payload))
+                    # También mostrar brevemente en el chat si está pensando mucho
+                    if thinking_widget is None:
+                        thinking_widget = ChatMessage("thinking", str(event.payload))
+                        chat_area.mount(thinking_widget)
+                    else:
+                        thinking_widget.content = str(event.payload)
+                        thinking_widget.refresh()
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.SKILL_START:
+                    skill_name = str(event.payload)
+                    self._set_state_task(f"⚙ Ejecutando: {skill_name}")
+                    chat_area.mount(ChatMessage("skill", f"Ejecutando skill: {skill_name}..."))
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.SKILL_DONE:
+                    payload = event.payload
+                    if isinstance(payload, dict):
+                        skill = payload.get("skill", "")
+                        ok = payload.get("success", True)
+                        icon = "✅" if ok else "❌"
+                        chat_area.mount(ChatMessage("skill", f"{icon} {skill}"))
+                    self._set_state_task("")
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.STATE_CHANGED:
+                    # Actualizar barra de agente + mensaje en chat
+                    msg = str(event.payload)
+                    self._refresh_state_bar()
+                    chat_area.mount(ChatMessage("system", msg))
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.PLAN_PROPOSED:
+                    self._refresh_state_bar()
+
+                elif event.type in (
+                    HarnessEventType.TASK_STARTED,
+                    HarnessEventType.TASK_COMPLETED,
+                    HarnessEventType.TASK_FAILED,
+                ):
+                    payload = event.payload or {}
+                    if isinstance(payload, dict):
+                        task_id = payload.get("id", "?")
+                        if event.type == HarnessEventType.TASK_STARTED:
+                            msg = f"▶ Tarea {task_id}: iniciada"
+                        elif event.type == HarnessEventType.TASK_COMPLETED:
+                            summary = payload.get("summary", "")[:80]
+                            msg = f"✅ Tarea {task_id}: completada — {summary}"
+                        else:
+                            error = payload.get("error", "") or str(payload.get("failed_goals", ""))
+                            msg = f"❌ Tarea {task_id}: falló — {error[:80]}"
+                        chat_area.mount(ChatMessage("system", msg))
+                    self._refresh_state_bar()
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.GOAL_VERIFIED:
+                    payload = event.payload or {}
+                    if isinstance(payload, dict):
+                        goal = payload.get("goal", "")[:60]
+                        met = payload.get("met", False)
+                        icon = "✅" if met else "⚠️"
+                        chat_area.mount(ChatMessage("skill", f"{icon} Meta: {goal}"))
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.SDD_QUESTION:
+                    # Mensaje especial para preguntas de la entrevista SDD
+                    widget.content = str(event.payload)
+                    widget.refresh()
+                    self._refresh_state_bar()
+                    chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.SDD_STARTED:
+                    self._refresh_state_bar()
 
                 elif event.type == HarnessEventType.SYSTEM:
-                    # El Harness procesó un comando slash interno
                     widget.role = "system"
-                    widget.content = event.payload
+                    widget.content = str(event.payload)
                     widget.refresh()
+                    self._refresh_state_bar()
 
                 elif event.type == HarnessEventType.ERROR:
                     widget.role = "system"
-                    widget.content = f"[Error] {event.payload}"
+                    widget.content = f"[red][Error][/red] {event.payload}"
                     widget.refresh()
 
                 elif event.type == HarnessEventType.DONE:
-                    pass  # El historial ya fue actualizado por el Harness
+                    # Limpiar el widget de thinking si existe
+                    if thinking_widget:
+                        thinking_widget.remove()
+                        thinking_widget = None
+                    self._refresh_state_bar()
+                    self._set_state_task("")
 
         except Exception as e:
             widget.role = "system"
@@ -216,6 +329,7 @@ class IicoApp(App):
             widget.refresh()
         finally:
             self.is_generating = False
+            self._set_state_task("")
 
     # ------------------------------------------------------------------
     # Comandos de UI (modelo / provider)
@@ -288,7 +402,12 @@ class IicoApp(App):
         option_list = self.query_one("#cmd-options", OptionList)
 
         if val.startswith("/") and not val.startswith("/model "):
-            commands = ["/model ", "/provider ", "/clear", "/memory", "/memory-reload", "/skills", "/splay"]
+            commands = [
+                "/model ", "/provider ", "/clear", "/memory", "/memory-reload",
+                "/skills", "/splay",
+                # Fase 3
+                "/sdd ", "/plan", "/tasks", "/project ", "/abort",
+            ]
             if " " not in val:
                 matches = [cmd for cmd in commands if cmd.startswith(val.lower())]
                 if matches:
@@ -399,6 +518,35 @@ class IicoApp(App):
         )
         chat_area.mount(ChatMessage("system", flags_summary))
         chat_area.scroll_end(animate=False)
+
+
+    # ------------------------------------------------------------------
+    # Helpers de barra de estado del agente (Fase 3)
+    # ------------------------------------------------------------------
+
+    def _refresh_state_bar(self) -> None:
+        """Actualiza el ícono y texto de la barra de estado según el estado del Harness."""
+        try:
+            icon_widget = self.query_one("#state-icon", Label)
+            label_widget = self.query_one("#state-label", Label)
+        except Exception:
+            return
+
+        state = AgentState.IDLE
+        if self.harness and hasattr(self.harness, "_state"):
+            state = self.harness._state
+
+        icon, text = _STATE_LABELS.get(state, ("[dim]⬤[/dim]", "Listo"))
+        icon_widget.update(icon)
+        label_widget.update(text)
+
+    def _set_state_task(self, task_text: str) -> None:
+        """Actualiza el texto de la tarea actual en la barra de estado."""
+        try:
+            task_widget = self.query_one("#state-task", Label)
+            task_widget.update(f" — {task_text}" if task_text else "")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

@@ -2,9 +2,31 @@ Screen {
     background: $background;
 }
 
+#agent-status-bar {
+    height: 1;
+    background: #001a33;
+    padding: 0 1;
+    border-bottom: solid #004a98;
+}
+
+#state-icon {
+    width: auto;
+    margin-right: 1;
+}
+
+#state-label {
+    color: #66a3ff;
+    width: auto;
+}
+
+#state-task {
+    color: $text-muted;
+    width: 1fr;
+}
+
 #main-container {
     width: 100%;
-    height: 100%;
+    height: 1fr;
     padding: 1;
 }
 
