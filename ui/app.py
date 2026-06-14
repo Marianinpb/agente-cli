@@ -124,11 +124,9 @@ class FileExplorer(Vertical):
             f"[dim]{self._current_path}[/dim]",
             id="explorer-root-label",
         )
-        yield Button(
-            "Establecer como raíz del proyecto",
-            id="btn-set-root",
-            variant="primary",
-        )
+        with Horizontal(id="explorer-buttons"):
+            yield Button("⬆️ Subir", id="btn-up-dir", variant="default")
+            yield Button("Establecer raíz", id="btn-set-root", variant="primary")
         yield DirectoryTree(str(self._current_path), id="dir-tree")
 
     def update_root(self, path: Path) -> None:
@@ -264,6 +262,16 @@ class IicoApp(App):
     def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         """Si se selecciona un archivo, guardar su carpeta padre."""
         self._selected_dir = Path(str(event.path)).parent
+
+    @on(Button.Pressed, "#btn-up-dir")
+    def on_up_dir_pressed(self, event: Button.Pressed) -> None:
+        """Sube un nivel en la jerarquía del explorador."""
+        try:
+            explorer = self.query_one(FileExplorer)
+            parent = explorer._current_path.parent
+            explorer.update_root(parent)
+        except Exception:
+            pass
 
     @on(Button.Pressed, "#btn-set-root")
     def on_set_root_pressed(self, event: Button.Pressed) -> None:

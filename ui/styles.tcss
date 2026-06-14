@@ -71,8 +71,23 @@ Screen {
     overflow: hidden;
 }
 
-#btn-set-root {
+#explorer-buttons {
+    layout: horizontal;
     width: 100%;
+    height: 3;
+    margin: 0;
+}
+
+#btn-up-dir {
+    width: auto;
+    height: 3;
+    min-width: 6;
+    margin: 0;
+    border: none;
+}
+
+#btn-set-root {
+    width: 1fr;
     height: 3;
     margin: 0;
     border: none;
