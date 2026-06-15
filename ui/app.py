@@ -32,9 +32,10 @@ if str(_root) not in sys.path:
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll, Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import (
     Header, Footer, Static, Input, OptionList, Label,
-    DirectoryTree, Button,
+    DirectoryTree, Button, Switch, Rule,
 )
 from textual.widgets.option_list import Option
 from textual.binding import Binding
@@ -72,6 +73,70 @@ _STATE_LABELS = {
     AgentState.EXECUTING:         ("⬤",  "Ejecutando",          "green"),
     AgentState.VERIFYING:         ("⬤",  "Verificando",         "blue"),
 }
+
+
+# ---------------------------------------------------------------------------
+# Modal de confirmación de comandos de terminal
+# ---------------------------------------------------------------------------
+
+class ConfirmCommandScreen(ModalScreen):
+    """
+    Diálogo modal que pregunta al usuario si el agente puede ejecutar
+    un comando en la terminal. Devuelve True (ejecutar) o False (cancelar).
+    """
+
+    DEFAULT_CSS = """
+    ConfirmCommandScreen {
+        align: center middle;
+    }
+    #confirm-dialog {
+        width: 72;
+        height: auto;
+        max-height: 20;
+        border: thick $warning;
+        background: $surface;
+        padding: 1 2;
+    }
+    #confirm-title {
+        text-style: bold;
+        color: $warning;
+        margin-bottom: 1;
+    }
+    #confirm-cmd {
+        background: $panel;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+    #confirm-buttons {
+        align: center middle;
+        height: 3;
+        margin-top: 1;
+    }
+    #btn-confirm-yes {
+        margin-right: 2;
+    }
+    """
+
+    def __init__(self, command: str):
+        super().__init__()
+        self._command = command
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-dialog"):
+            yield Label("⚠️  El agente quiere ejecutar en terminal:", id="confirm-title")
+            yield Static(f"[b]$ {self._command}[/b]", id="confirm-cmd")
+            yield Static("¿Permites que el agente ejecute este comando?")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("✅ Ejecutar", id="btn-confirm-yes", variant="success")
+                yield Button("❌ Cancelar", id="btn-confirm-no", variant="error")
+
+    @on(Button.Pressed, "#btn-confirm-yes")
+    def on_yes(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn-confirm-no")
+    def on_no(self) -> None:
+        self.dismiss(False)
 
 
 # ---------------------------------------------------------------------------
@@ -407,9 +472,20 @@ class IicoApp(App):
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.SKILL_START:
-                    skill_name = str(event.payload)
-                    self._set_state_task(f"⚙ {skill_name}")
-                    chat_area.mount(ChatMessage("skill", f"Ejecutando: {skill_name}..."))
+                    payload = event.payload
+                    if isinstance(payload, dict):
+                        skill_name = payload.get("name", "")
+                        args = payload.get("args", {})
+                        self._set_state_task(f"⚙ {skill_name}")
+                        if skill_name == "run_command" and "command" in args:
+                            # Mostrar el comando real que va a ejecutar
+                            chat_area.mount(ChatMessage("skill", f"🖥 $ {args['command']}"))
+                        else:
+                            chat_area.mount(ChatMessage("skill", f"Ejecutando: {skill_name}..."))
+                    else:
+                        skill_name = str(payload)
+                        self._set_state_task(f"⚙ {skill_name}")
+                        chat_area.mount(ChatMessage("skill", f"Ejecutando: {skill_name}..."))
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.SKILL_DONE:
@@ -417,10 +493,27 @@ class IicoApp(App):
                     if isinstance(payload, dict):
                         skill = payload.get("skill", "")
                         ok = payload.get("success", True)
-                        icon = "✅" if ok else "❌"
-                        chat_area.mount(ChatMessage("skill", f"{icon} {skill}"))
+                        cancelled = payload.get("cancelled", False)
+                        if cancelled:
+                            icon = "🚫"
+                            chat_area.mount(ChatMessage("skill", f"{icon} {skill}: cancelado por el usuario"))
+                        else:
+                            icon = "✅" if ok else "❌"
+                            chat_area.mount(ChatMessage("skill", f"{icon} {skill}"))
                     self._set_state_task("")
                     chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.COMMAND_APPROVAL_REQUIRED:
+                    command = str(event.payload)
+                    # El modal bloquea hasta que el usuario decida;
+                    # el Future ya existe en harness (fue creado antes del yield)
+                    approved = await self.push_screen_wait(
+                        ConfirmCommandScreen(command)
+                    )
+                    if approved:
+                        self.harness.approve()
+                    else:
+                        self.harness.reject()
 
                 elif event.type == HarnessEventType.STATE_CHANGED:
                     msg = str(event.payload)
@@ -645,16 +738,17 @@ class IicoApp(App):
             return
 
         cfg = self.harness.config
-        cfg.use_passive_memory    = result.use_passive_memory
-        cfg.use_splay_tree        = result.use_splay_tree
-        cfg.use_skills            = result.use_skills
-        cfg.use_react_loop        = result.use_react_loop
-        cfg.splay_cache_size      = result.splay_cache_size
-        cfg.max_context_notes     = result.max_context_notes
-        cfg.splay_peek_top        = result.splay_peek_top
-        cfg.embedding_threshold   = result.embedding_threshold
-        cfg.skill_timeout         = result.skill_timeout
-        cfg.token_budget          = result.token_budget
+        cfg.use_passive_memory           = result.use_passive_memory
+        cfg.use_splay_tree               = result.use_splay_tree
+        cfg.use_skills                   = result.use_skills
+        cfg.use_react_loop               = result.use_react_loop
+        cfg.require_command_confirmation = result.require_command_confirmation
+        cfg.splay_cache_size             = result.splay_cache_size
+        cfg.max_context_notes            = result.max_context_notes
+        cfg.splay_peek_top               = result.splay_peek_top
+        cfg.embedding_threshold          = result.embedding_threshold
+        cfg.skill_timeout                = result.skill_timeout
+        cfg.token_budget                 = result.token_budget
 
         if result.use_embedding_search and not cfg.use_embedding_search:
             cfg.use_embedding_search = True
@@ -683,6 +777,7 @@ class IicoApp(App):
             f"Embeddings={'ON' if cfg.use_embedding_search else 'OFF'} (umbral={cfg.embedding_threshold:.2f}) | "
             f"Skills={'ON' if cfg.use_skills else 'OFF'} (timeout={cfg.skill_timeout}s) | "
             f"ReAct={'ON' if cfg.use_react_loop else 'OFF'} | "
+            f"Confirmar cmds={'ON' if cfg.require_command_confirmation else 'OFF'} | "
             f"Tokens={cfg.token_budget} | "
             f"Nodos Splay={cfg.splay_cache_size} | "
             f"Notas={cfg.max_context_notes}"

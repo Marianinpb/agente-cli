@@ -48,6 +48,7 @@ class SettingsChanged(Message):
     use_embedding_search: bool
     use_skills: bool
     use_react_loop: bool
+    require_command_confirmation: bool
     embedding_threshold: float
     splay_cache_size: int
     max_context_notes: int
@@ -239,6 +240,18 @@ class SettingsScreen(ModalScreen):
                     classes="setting-desc",
                 )
 
+                # Confirmación antes de correr comandos de terminal
+                with Horizontal(classes="setting-row"):
+                    yield Label("Confirmar comandos de terminal", classes="setting-label")
+                    yield Switch(
+                        value=cfg.require_command_confirmation,
+                        id="sw-cmd-confirm",
+                    )
+                yield Static(
+                    "Preguntar al usuario antes de ejecutar run_command en la terminal",
+                    classes="setting-desc",
+                )
+
                 # ── Parámetros numéricos ─────────────────────────────────
                 yield Static("PARÁMETROS", classes="section-label")
                 yield Rule()
@@ -348,6 +361,7 @@ class SettingsScreen(ModalScreen):
         use_emb     = self.query_one("#sw-embeddings", Switch).value
         use_skills  = self.query_one("#sw-skills", Switch).value
         use_react   = self.query_one("#sw-react-loop", Switch).value
+        cmd_confirm = self.query_one("#sw-cmd-confirm", Switch).value
 
         # Leer y validar inputs numéricos
         try:
@@ -415,6 +429,7 @@ class SettingsScreen(ModalScreen):
                 use_embedding_search=use_emb,
                 use_skills=use_skills,
                 use_react_loop=use_react,
+                require_command_confirmation=cmd_confirm,
                 embedding_threshold=threshold,
                 splay_cache_size=splay_size,
                 max_context_notes=max_notes,
