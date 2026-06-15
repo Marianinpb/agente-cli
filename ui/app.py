@@ -314,6 +314,9 @@ class IicoApp(App):
             self.harness._sdd_manager.set_project_root(path)
         if self.harness._task_manager:
             self.harness._task_manager.set_project_root(path)
+        # Propagar al ShellBridge para que las skills corran en el directorio correcto
+        if self.harness._bridge:
+            self.harness._bridge.project_root = path
 
     def action_toggle_explorer(self) -> None:
         """Ctrl+B — muestra/oculta el panel del explorador."""
