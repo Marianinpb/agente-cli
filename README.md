@@ -56,6 +56,7 @@ python main.py
 
 Dentro del campo de texto principal, puedes ingresar estos comandos (`/`). Un menú flotante aparecerá sugiriendo autocompletado:
 
+- `/sdd`: Inicia el flujo de **Spec-Driven Development** donde el agente diseña, planifica y ejecuta una solución paso a paso de forma autónoma.
 - `/model <nombre>`: Cambia el modelo en uso para la próxima solicitud.
 - `/provider <ollama|openai> <endpoint>`: Agrega un nuevo proveedor dinámicamente y configura su URI.
 - `/memory`: Lista las notas de la memoria pasiva que han sido cargadas exitosamente.
@@ -67,7 +68,8 @@ Dentro del campo de texto principal, puedes ingresar estos comandos (`/`). Un me
 **Atajos de Teclado Útiles:**
 - `Ctrl+C`: Salir de la aplicación rápidamente.
 - `Ctrl+L`: Limpiar el buffer de la pantalla de chat.
-- `Ctrl+S`: Abrir el panel de **Configuración Interactiva** para modificar parámetros del `Harness` en tiempo real.
+- `Ctrl+S`: Abrir el panel de **Configuración Interactiva** para modificar parámetros (como activar el bucle autónomo ReAct o límites de token/timeouts) en tiempo real.
+- `Ctrl+B`: Mostrar/ocultar el panel lateral del Explorador de Archivos de proyecto.
 
 ---
 
