@@ -206,6 +206,17 @@ class FileExplorer(Vertical):
             pass
 
 
+# Iconos y colores para la barra de estado del agente
+_STATE_LABELS: dict = {
+    "IDLE":              ("⬤", "Listo",                "#888888"),
+    "INTERVIEWING":      ("⬤", "Entrevistando...",     "#f0c040"),
+    "PLANNING":          ("⬤", "Planificando...",      "#40d0f0"),
+    "AWAITING_APPROVAL": ("⬤", "Esperando aprobación", "#f09010"),
+    "EXECUTING":         ("⬤", "Ejecutando",           "#40dd60"),
+    "VERIFYING":         ("⬤", "Verificando",          "#4080f0"),
+}
+
+
 # ---------------------------------------------------------------------------
 # Aplicación principal
 # ---------------------------------------------------------------------------
@@ -463,6 +474,12 @@ class IicoApp(App):
 
                 elif event.type == HarnessEventType.THINKING:
                     self._set_state_task(str(event.payload))
+                    # Mostrar "Ejecutando" en la barra mientras el agente razona
+                    try:
+                        self.query_one("#state-icon", Label).update("[#40dd60]⬤[/#40dd60]")
+                        self.query_one("#state-label", Label).update("[#40dd60]Ejecutando[/#40dd60]")
+                    except Exception:
+                        pass
                     if thinking_widget is None:
                         thinking_widget = ChatMessage("thinking", str(event.payload))
                         chat_area.mount(thinking_widget)
@@ -797,15 +814,15 @@ class IicoApp(App):
         except Exception:
             return
 
-        state = AgentState.IDLE
+        state_key = "IDLE"
         if self.harness and hasattr(self.harness, "_state"):
-            state = self.harness._state
+            state_key = self.harness._state.name  # e.g. 'EXECUTING'
 
         icon, text, color = _STATE_LABELS.get(
-            state, ("⬤", "Listo", "dim")
+            state_key, ("⬤", "Listo", "#888888")
         )
         icon_w.update(f"[{color}]{icon}[/{color}]")
-        label_w.update(text)
+        label_w.update(f"[{color}]{text}[/{color}]")
 
     def _set_state_task(self, task_text: str) -> None:
         """Actualiza el subtexto de la tarea actual en la barra."""
