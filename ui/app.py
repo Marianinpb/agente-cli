@@ -493,31 +493,13 @@ class IicoApp(App):
                     payload = event.payload
                     if isinstance(payload, dict):
                         skill_name = payload.get("name", "")
-                        args = payload.get("args", {})
                         self._set_state_task(f"⚙ {skill_name}")
-                        if skill_name == "run_command" and "command" in args:
-                            # Mostrar el comando real que va a ejecutar
-                            chat_area.mount(ChatMessage("skill", f"🖥 $ {args['command']}"))
-                        else:
-                            chat_area.mount(ChatMessage("skill", f"Ejecutando: {skill_name}..."))
                     else:
                         skill_name = str(payload)
                         self._set_state_task(f"⚙ {skill_name}")
-                        chat_area.mount(ChatMessage("skill", f"Ejecutando: {skill_name}..."))
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.SKILL_DONE:
-                    payload = event.payload
-                    if isinstance(payload, dict):
-                        skill = payload.get("skill", "")
-                        ok = payload.get("success", True)
-                        cancelled = payload.get("cancelled", False)
-                        if cancelled:
-                            icon = "🚫"
-                            chat_area.mount(ChatMessage("skill", f"{icon} {skill}: cancelado por el usuario"))
-                        else:
-                            icon = "✅" if ok else "❌"
-                            chat_area.mount(ChatMessage("skill", f"{icon} {skill}"))
                     self._set_state_task("")
                     chat_area.scroll_end(animate=False)
 
