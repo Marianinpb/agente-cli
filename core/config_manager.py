@@ -7,7 +7,8 @@ DEFAULT_CONFIG = {
     "active_model_id": "",
     "providers": [
         {"name": "default_ollama", "type": "ollama", "endpoint": "http://localhost:11434"}
-    ]
+    ],
+    "settings": {}
 }
 
 class ConfigManager:
@@ -37,6 +38,8 @@ class ConfigManager:
                         self._config["providers"] = new_providers
 
                     self._config["active_model_id"] = user_config.get("active_model_id", "")
+                    if "settings" in user_config:
+                        self._config["settings"] = user_config["settings"]
             except Exception as e:
                 print(f"Error loading config: {e}")
         else:
@@ -68,6 +71,13 @@ class ConfigManager:
         
     def set_active_model_id(self, model_id):
         self._config["active_model_id"] = model_id
+        self.save()
+
+    def get_settings(self):
+        return self._config.get("settings", {})
+        
+    def set_settings(self, settings: dict):
+        self._config["settings"] = settings
         self.save()
 
 config_manager = ConfigManager()

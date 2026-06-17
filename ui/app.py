@@ -282,13 +282,24 @@ class IicoApp(App):
             model=model,
             temperature=0.7,
         )
+        saved_settings = config_manager.get_settings()
+        
         harness_cfg = HarnessConfig(
             provider=provider_cfg,
             memory_path=_root / "memory_store",
             skills_path=_root / "skills",
-            use_skills=True,
-            use_embedding_search=True,
-            use_react_loop=True,
+            use_passive_memory=saved_settings.get("use_passive_memory", True),
+            use_splay_tree=saved_settings.get("use_splay_tree", True),
+            use_skills=saved_settings.get("use_skills", True),
+            use_embedding_search=saved_settings.get("use_embedding_search", True),
+            use_react_loop=saved_settings.get("use_react_loop", True),
+            require_command_confirmation=saved_settings.get("require_command_confirmation", True),
+            splay_cache_size=saved_settings.get("splay_cache_size", 50),
+            max_context_notes=saved_settings.get("max_context_notes", 10),
+            splay_peek_top=saved_settings.get("splay_peek_top", 3),
+            embedding_threshold=saved_settings.get("embedding_threshold", 0.75),
+            skill_timeout=saved_settings.get("skill_timeout", 30.0),
+            token_budget=saved_settings.get("token_budget", 6000),
         )
         self.harness = Harness(harness_cfg)
         
@@ -778,6 +789,22 @@ class IicoApp(App):
         cfg.embedding_threshold          = result.embedding_threshold
         cfg.skill_timeout                = result.skill_timeout
         cfg.token_budget                 = result.token_budget
+
+        # Guardar en config_manager
+        config_manager.set_settings({
+            "use_passive_memory": cfg.use_passive_memory,
+            "use_splay_tree": cfg.use_splay_tree,
+            "use_skills": cfg.use_skills,
+            "use_embedding_search": result.use_embedding_search,
+            "use_react_loop": cfg.use_react_loop,
+            "require_command_confirmation": cfg.require_command_confirmation,
+            "splay_cache_size": cfg.splay_cache_size,
+            "max_context_notes": cfg.max_context_notes,
+            "splay_peek_top": cfg.splay_peek_top,
+            "embedding_threshold": cfg.embedding_threshold,
+            "skill_timeout": cfg.skill_timeout,
+            "token_budget": cfg.token_budget,
+        })
 
         if result.use_embedding_search and not cfg.use_embedding_search:
             cfg.use_embedding_search = True
