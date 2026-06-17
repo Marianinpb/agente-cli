@@ -226,7 +226,7 @@ class IicoApp(App):
     CSS_PATH = "styles.tcss"
     BINDINGS = [
         Binding("ctrl+q", "quit",          "Salir",      priority=True),
-        Binding("ctrl+c", "ignore_ctrl_c", "Copiar",     show=False, priority=True),
+        Binding("ctrl+c", "copy_text",     "Copiar",     show=False, priority=True),
         Binding("ctrl+l", "clear_chat",    "Limpiar",    priority=True),
         Binding("ctrl+s", "open_settings", "Settings",   priority=True),
         Binding("ctrl+b", "toggle_explorer","Explorador", priority=True),
@@ -714,15 +714,31 @@ class IicoApp(App):
             option_list.focus()
 
     # ------------------------------------------------------------------
-    # Acciones de bindings
+    # Acciones de bindings y eventos globales
     # ------------------------------------------------------------------
 
-    def action_ignore_ctrl_c(self) -> None:
-        """
-        No hacer nada. Evita que la app se cierre al intentar copiar texto.
-        El usuario debe usar la copia nativa de su terminal.
-        """
-        pass
+    @on(events.TextSelected)
+    def auto_copy_on_select(self, event: events.TextSelected) -> None:
+        """Copia el texto automáticamente al terminar de seleccionarlo."""
+        try:
+            text = self.screen.get_selected_text()
+            if text:
+                self.copy_to_clipboard(text)
+                self.notify("Texto copiado al portapapeles", timeout=1.5)
+        except Exception:
+            pass
+
+    def action_copy_text(self) -> None:
+        """Copia el texto seleccionado al portapapeles (Ctrl+C)."""
+        try:
+            text = self.screen.get_selected_text()
+            if text:
+                self.copy_to_clipboard(text)
+                self.notify("Texto copiado al portapapeles", timeout=1.5)
+            else:
+                self.notify("No hay texto seleccionado", severity="warning", timeout=1.5)
+        except Exception:
+            pass
 
     def action_clear_chat(self) -> None:
         if not self.is_generating:
