@@ -291,6 +291,12 @@ class IicoApp(App):
             use_react_loop=True,
         )
         self.harness = Harness(harness_cfg)
+        
+        # Si ya se había establecido una raíz de proyecto, inyectarla en el nuevo harness
+        if self._project_root:
+            import asyncio
+            asyncio.ensure_future(self._apply_project_root_to_harness(self._project_root))
+            
         config_manager.set_active_model_id(model_id)
         self._refresh_state_bar()
 
