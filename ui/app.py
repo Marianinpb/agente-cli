@@ -35,7 +35,7 @@ from textual.containers import Container, VerticalScroll, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import (
     Header, Footer, Static, Input, OptionList, Label,
-    DirectoryTree, Button, Switch, Rule,
+    DirectoryTree, Button, Switch, Rule, ProgressBar
 )
 from textual.widgets.option_list import Option
 from textual.binding import Binding
@@ -323,6 +323,10 @@ class IicoApp(App):
             yield Label("⬤", id="state-icon")
             yield Label("Listo", id="state-label")
             yield Label("", id="state-task")
+            # Añadido al final para uso de tokens
+            with Horizontal(id="token-usage-container", classes="token-usage"):
+                yield Label("Tokens: 0 / 0 (0%)", id="token-label")
+                yield ProgressBar(id="token-progress", total=100, show_eta=False)
 
         # Layout principal: explorador | chat
         with Horizontal(id="workspace"):
@@ -537,6 +541,22 @@ class IicoApp(App):
                     self._refresh_state_bar()
                     chat_area.mount(ChatMessage("system", msg))
                     chat_area.scroll_end(animate=False)
+
+                elif event.type == HarnessEventType.TOKEN_USAGE:
+                    payload = event.payload or {}
+                    if isinstance(payload, dict):
+                        total_tokens = payload.get("total_tokens", 0)
+                        max_tokens = self.harness.config.token_budget
+                        perc = min(100.0, (total_tokens / max_tokens) * 100) if max_tokens > 0 else 0
+                        
+                        try:
+                            t_label = self.query_one("#token-label", Label)
+                            t_label.update(f"Tokens: {total_tokens} / {max_tokens} ({perc:.1f}%)")
+                            
+                            t_prog = self.query_one("#token-progress", ProgressBar)
+                            t_prog.update(progress=perc)
+                        except Exception:
+                            pass
 
                 elif event.type == HarnessEventType.PLAN_PROPOSED:
                     self._refresh_state_bar()
