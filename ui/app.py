@@ -225,7 +225,8 @@ class IicoApp(App):
     TITLE = "iico-agent"
     CSS_PATH = "styles.tcss"
     BINDINGS = [
-        Binding("ctrl+c", "quit",          "Salir",      priority=True),
+        Binding("ctrl+q", "quit",          "Salir",      priority=True),
+        Binding("ctrl+c", "ignore_ctrl_c", "Copiar",     show=False, priority=True),
         Binding("ctrl+l", "clear_chat",    "Limpiar",    priority=True),
         Binding("ctrl+s", "open_settings", "Settings",   priority=True),
         Binding("ctrl+b", "toggle_explorer","Explorador", priority=True),
@@ -715,6 +716,13 @@ class IicoApp(App):
     # ------------------------------------------------------------------
     # Acciones de bindings
     # ------------------------------------------------------------------
+
+    def action_ignore_ctrl_c(self) -> None:
+        """
+        No hacer nada. Evita que la app se cierre al intentar copiar texto.
+        El usuario debe usar la copia nativa de su terminal.
+        """
+        pass
 
     def action_clear_chat(self) -> None:
         if not self.is_generating:
