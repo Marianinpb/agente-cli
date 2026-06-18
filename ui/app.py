@@ -239,6 +239,7 @@ class IicoApp(App):
         self.all_models: dict = {}
         self._explorer_visible = True
         self._project_root: Path | None = None
+        self._selected_dir: Path | None = None
 
     # ------------------------------------------------------------------
     # Ciclo de vida
@@ -318,15 +319,7 @@ class IicoApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
 
-        # Barra de estado del agente (siempre visible)
-        with Horizontal(id="agent-status-bar"):
-            yield Label("⬤", id="state-icon")
-            yield Label("Listo", id="state-label")
-            yield Label("", id="state-task")
-            # Añadido al final para uso de tokens
-            with Horizontal(id="token-usage-container", classes="token-usage"):
-                yield Label("Tokens: 0 / 0 (0%)", id="token-label")
-                yield ProgressBar(id="token-progress", total=100, show_eta=False)
+
 
         # Layout principal: explorador | chat
         with Horizontal(id="workspace"):
@@ -344,6 +337,15 @@ class IicoApp(App):
                     )
                 yield OptionList(id="cmd-options")
                 yield Input(placeholder="Escribe tu mensaje aquí...", id="chat-input")
+
+        # Barra de estado del agente (siempre visible)
+        with Horizontal(id="agent-status-bar"):
+            yield Label("⬤", id="state-icon")
+            yield Label("Listo", id="state-label")
+            yield Label("", id="state-task")
+            # Añadido al final para uso de tokens
+            yield Label("Contexto: — / — (—%)", id="token-label")
+            yield Label("░░░░░░░░░░░░░░░░░░░░", id="token-bar")
 
         yield Footer()
 
@@ -416,12 +418,14 @@ class IicoApp(App):
         if self.harness._bridge:
             self.harness._bridge.project_root = path
 
-    def action_toggle_explorer(self) -> None:
+    async def action_toggle_explorer(self) -> None:
         """Ctrl+B — muestra/oculta el panel del explorador."""
         try:
             explorer = self.query_one(FileExplorer)
             self._explorer_visible = not self._explorer_visible
             explorer.display = self._explorer_visible
+            if self._explorer_visible:
+                await self._refresh_explorer()
         except Exception:
             pass
 
@@ -430,6 +434,14 @@ class IicoApp(App):
             chat_area = self.query_one("#chat-area")
             chat_area.mount(ChatMessage("system", msg))
             chat_area.scroll_end(animate=False)
+        except Exception:
+            pass
+
+    async def _refresh_explorer(self) -> None:
+        """Refresca el DirectoryTree para mostrar archivos nuevos/borrados."""
+        try:
+            tree = self.query_one("#dir-tree", DirectoryTree)
+            await tree.reload()
         except Exception:
             pass
 
@@ -522,6 +534,7 @@ class IicoApp(App):
 
                 elif event.type == HarnessEventType.SKILL_DONE:
                     self._set_state_task("")
+                    await self._refresh_explorer()
                     chat_area.scroll_end(animate=False)
 
                 elif event.type == HarnessEventType.COMMAND_APPROVAL_REQUIRED:
@@ -546,15 +559,26 @@ class IicoApp(App):
                     payload = event.payload or {}
                     if isinstance(payload, dict):
                         total_tokens = payload.get("total_tokens", 0)
+                        prompt_tokens = payload.get("prompt_tokens", 0)
                         max_tokens = self.harness.config.token_budget
                         perc = min(100.0, (total_tokens / max_tokens) * 100) if max_tokens > 0 else 0
                         
                         try:
                             t_label = self.query_one("#token-label", Label)
-                            t_label.update(f"Tokens: {total_tokens} / {max_tokens} ({perc:.1f}%)")
+                            t_label.update(f"Ctx: {total_tokens}/{max_tokens} ({perc:.0f}%)")
                             
-                            t_prog = self.query_one("#token-progress", ProgressBar)
-                            t_prog.update(progress=perc)
+                            t_bar = self.query_one("#token-bar", Label)
+                            bar_len = 20
+                            filled = int(bar_len * perc / 100)
+                            # Color: verde < 50%, amarillo < 80%, rojo >= 80%
+                            if perc < 50:
+                                color = "#40dd60"
+                            elif perc < 80:
+                                color = "#f0c040"
+                            else:
+                                color = "#ff4040"
+                            bar_text = f"[{color}]{'█' * filled}[/{color}]{'░' * (bar_len - filled)}"
+                            t_bar.update(bar_text)
                         except Exception:
                             pass
 
@@ -616,6 +640,7 @@ class IicoApp(App):
                         thinking_widget = None
                     self._refresh_state_bar()
                     self._set_state_task("")
+                    await self._refresh_explorer()
 
         except Exception as e:
             widget.role = "system"
